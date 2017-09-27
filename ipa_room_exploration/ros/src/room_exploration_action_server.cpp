@@ -69,30 +69,6 @@ RoomExplorationServer::RoomExplorationServer(ros::NodeHandle nh, std::string nam
 	// dynamic reconfigure
 	room_exploration_dynamic_reconfigure_server_.setCallback(boost::bind(&RoomExplorationServer::dynamic_reconfigure_callback, this, _1, _2));
 
-	// Parameters
-	std::cout << "\n--------------------------\nRoom Exploration Parameters:\n--------------------------\n";
-	node_handle_.param("room_exploration_algorithm", path_planning_algorithm_, 1);
-	std::cout << "room_exploration/room_exploration_algorithm = " << path_planning_algorithm_ << std::endl << std::endl;
-	node_handle_.param("goal_eps", goal_eps_, 0.35);
-	std::cout << "room_exploration/goal_eps = " << goal_eps_ << std::endl;
-	node_handle_.param("return_path", return_path_, true);
-	std::cout << "room_exploration/return_path = " << return_path_ << std::endl;
-	node_handle_.param("execute_path", execute_path_, false);
-	std::cout << "room_exploration/execute_path = " << execute_path_ << std::endl;
-	global_costmap_topic_ = "/move_base/global_costmap/costmap";
-	node_handle_.param<std::string>("global_costmap_topic", global_costmap_topic_);
-	std::cout << "room_exploration/global_costmap_topic = " << global_costmap_topic_ << std::endl;
-	coverage_check_service_name_ = "/coverage_check_server/coverage_check";
-	node_handle_.param<std::string>("coverage_check_service_name", coverage_check_service_name_);
-	std::cout << "room_exploration/coverage_check_service_name = " << coverage_check_service_name_ << std::endl;
-	map_frame_ = "map";
-	node_handle_.param<std::string>("map_frame", map_frame_);
-	std::cout << "room_exploration/map_frame = " << map_frame_ << std::endl;
-    camera_frame_ = "base_link";
-    node_handle_.param<std::string>("camera_frame", camera_frame_);
-	std::cout << "room_exploration/camera_frame = " << camera_frame_ << std::endl;
-
-
 	if (path_planning_algorithm_ == 1)
 		ROS_INFO("You have chosen the grid exploration method.");
 	else if(path_planning_algorithm_ == 2)
@@ -312,9 +288,6 @@ void RoomExplorationServer::exploreRoom(const ipa_building_msgs::RoomExploration
 	cv_bridge::CvImagePtr cv_ptr_obj;
 	cv_ptr_obj = cv_bridge::toCvCopy(goal->input_map, sensor_msgs::image_encodings::MONO8);
 	cv::Mat room_map = cv_ptr_obj->image;
-
-	// erode map so that not reachable areas are not considered - we are using the closing operation instead to work on the original but cleaned up map
-	//cv::erode(room_map, room_map, cv::Mat(), cv::Point(-1, -1), robot_radius_in_pixel);
 
 	// closing operation to neglect inaccessible areas and map errors/artifacts
 	// todo: make closing neighborhood size a parameter
@@ -619,14 +592,6 @@ void RoomExplorationServer::navigateExplorationPath(const std::vector<geometry_m
 		// save the costmap as Mat of the same type as the given map (8UC1)
 		cv::Mat costmap_as_mat;//(global_map.cols, global_map.rows, CV_8UC1);
 
-//		// fill one row and then go to the next one (storing method of ros)
-//		for(size_t u = 0; u < costmap_as_mat.cols; ++u)
-//		{
-//			for(size_t v = 0; v < costmap_as_mat.rows; ++v)
-//			{
-//				costmap_as_mat.at<uchar>(u,v) = (uchar) pixel_values[v+u*global_map.rows];
-//			}
-//		}
 		mapToMat(global_costmap, costmap_as_mat);
 
 		// 70% probability of being an obstacle
@@ -688,15 +653,6 @@ void RoomExplorationServer::navigateExplorationPath(const std::vector<geometry_m
 				return;
 			}
 		}
-//		cv::imshow("covered", seen_positions_map);
-//		cv::waitKey();
-//		cv::Mat copy = room_map.clone();
-
-		// testing, parameter to show
-//		cv::namedWindow("initially seen areas", cv::WINDOW_NORMAL);
-//		cv::imshow("initially seen areas", seen_positions_map);
-//		cv::resizeWindow("initially seen areas", 600, 600);
-//		cv::waitKey();
 
 		// apply a binary filter on the image, making the drawn seen areas black
 		cv::threshold(seen_positions_map, seen_positions_map, 150, 255, cv::THRESH_BINARY);
@@ -751,7 +707,7 @@ void RoomExplorationServer::navigateExplorationPath(const std::vector<geometry_m
 		// 2. Intersect the left areas with respect to the calculated grid length.
 		geometry_msgs::Polygon min_max_coordinates;	// = goal->room_min_max;
 		for(size_t i = 0/*min_max_coordinates.points[0].y*/; i < black_map.cols; i += std::floor(grid_spacing_in_pixel))
-			cv::line(black_map, cv::Point(0, i), cv::Point(black_map.cols, i), cv::Scalar(0), 1);
+      cv::line(black_map, cv::Point(0, i), cv::Point(black_map.cols, i), cv::Scalar(0), 1);
 		for(size_t i = 0/*min_max_coordinates.points[0].x*/; i < black_map.rows; i += std::floor(grid_spacing_in_pixel))
 			cv::line(black_map, cv::Point(i, 0), cv::Point(i, black_map.rows), cv::Scalar(0), 1);
 
@@ -782,18 +738,6 @@ void RoomExplorationServer::navigateExplorationPath(const std::vector<geometry_m
 				area_centers[i] = grid_areas[i][0];
 			}
 		}
-
-		// testing
-//		black_map = room_map.clone();
-//		for(size_t i = 0; i < area_centers.size(); ++i)
-//		{
-//			cv::circle(black_map, area_centers[i], 2, cv::Scalar(127), CV_FILLED);
-//			std::cout << area_centers[i] << std::endl;
-//		}
-//		cv::namedWindow("revisiting areas", cv::WINDOW_NORMAL);
-//		cv::imshow("revisiting areas", black_map);
-//		cv::resizeWindow("revisiting areas", 600, 600);
-	//	cv::waitKey();
 
 		// 4. plan a tsp path trough the centers of the left areas
 		// find the center that is nearest to the current robot position, which becomes the start node for the tsp
@@ -859,12 +803,6 @@ void RoomExplorationServer::navigateExplorationPath(const std::vector<geometry_m
 				std::cout << "center not reachable on perimeter" << std::endl;
 			}
 		}
-
-//		drawSeenPoints(copy, robot_poses, goal->field_of_view, corner_point_1, corner_point_2, map_resolution, map_origin);
-//		cv::namedWindow("seen areas", cv::WINDOW_NORMAL);
-//		cv::imshow("seen areas", copy);
-//		cv::resizeWindow("seen areas", 600, 600);
-//		cv::waitKey();
 	}
 }
 
@@ -928,7 +866,6 @@ bool RoomExplorationServer::publishNavigationGoal(const geometry_msgs::Pose2D& n
 			listener.waitForTransform(map_frame, camera_frame, time, ros::Duration(2.0)); // 5.0
 			listener.lookupTransform(map_frame, camera_frame, time, transform);
 
-//			ROS_INFO("Got a transform! x = %f, y = %f", transform.getOrigin().x(), transform.getOrigin().y());
 			sleep_duration.sleep();
 
 			// save the current pose if a transform could be found
@@ -940,15 +877,13 @@ bool RoomExplorationServer::publishNavigationGoal(const geometry_msgs::Pose2D& n
 			current_pose.theta = yaw;
 
             if((current_pose.x-map_oriented_pose.x)*(current_pose.x-map_oriented_pose.x) + (current_pose.y-map_oriented_pose.y)*(current_pose.y-map_oriented_pose.y) <= eps*eps)
-            {
 				near_pos = true;
-            }
 
 			robot_poses.push_back(current_pose);
 		}
 		catch(tf::TransformException &ex)
 		{
-			ROS_INFO("Couldn't get transform!");// %s", ex.what());
+      ROS_WARN_STREAM("Couldn't get transform from " << camera_frame << " to " << map_frame << "!");// %s", ex.what());
 		}
 
 	}while(mv_base_client.getState() != actionlib::SimpleClientGoalState::ABORTED && mv_base_client.getState() != actionlib::SimpleClientGoalState::SUCCEEDED
@@ -966,6 +901,7 @@ bool RoomExplorationServer::publishNavigationGoal(const geometry_msgs::Pose2D& n
 		ROS_INFO("current goal could not be reached, checking for other goal.");
 
 		// get the desired fov-position
+
 		geometry_msgs::Pose2D relative_vector;
         relative_vector.x = std::cos(map_oriented_pose.theta)*robot_to_fov_middlepoint_distance;
         relative_vector.y = std::sin(map_oriented_pose.theta)*robot_to_fov_middlepoint_distance;
